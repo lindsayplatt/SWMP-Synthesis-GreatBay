@@ -1,0 +1,232 @@
+library(here)
+library(dplyr)
+library(reshape2) 
+library (ggplot2)
+library(lubridate)
+library(SWMPr)
+library(EnvStats)
+library(trend)
+library(BreakPoints)
+
+###################LINDSAY CODE (from prepare_monthly_data.R)###################
+load_swmp_monthly_data <- function(filename, reserve_abbr, stations_of_interest, col_prefix) {
+  read_csv(filename, show_col_types = FALSE) %>% 
+    # Keep only station & date columns plus those that 
+    # match one of the prefixes passed into the fxn
+    select(station, year, month, 
+           # This creates a regular expression that will search for 
+           # strings that *start* with any of the prefixes passed in
+           matches(sprintf('^(%s)', paste(col_prefix, collapse = '|')))) %>% 
+    # Get rid of any of the '_nValid' columns or censored (?) columns
+    select(-ends_with('nValid'), -ends_with('cens')) %>% 
+    # Pivot to long so we can combine
+    pivot_longer(-c(station, year, month), names_to = 'param') %>% 
+    # Add a new column that can be used to plot the monthly data as a time series
+    mutate(year_frac = year + month/12, .after = 'month') %>% 
+    # Fix the 'station' column to have just the 2-digit station code & then
+    # add the type of station as a separate column
+    mutate(station = gsub(reserve_abbr, '', station)) %>% 
+    separate(station, into = c('station', 'type'), sep = 2) %>% 
+    filter(station %in% c(stations_of_interest))
+}
+
+reserve_abbr <- 'grb'
+params_of_interest <- c('temp', 'turb', 'no23f', 'totprcp')
+stations_of_interest <- c('gb', 'sq') # Used for monthly data filtering
+
+# Read and then combine all data types together to get one big data frame
+swmp_data <- 
+  # Load monthly meteo data
+  load_swmp_monthly_data('~/GRB-selected/met_grb.csv', reserve_abbr, c('gb', 'gl'), params_of_interest) %>% 
+  # Both have a data point for October 2005, so keep only the precip from GB on that date
+  filter(!(year == 2005 & month == 10 & station == 'gl')) %>% 
+  # Make a new station name that shows it is combined
+  # Because GB precip station ends in 2005 and then picks up as GL
+  mutate(station = 'gb-gl') %>% 
+  bind_rows(load_swmp_monthly_data('~/GRB-selected/wq_grb.csv', reserve_abbr, stations_of_interest, params_of_interest)) %>% 
+  bind_rows(load_swmp_monthly_data('~/GRB-selected/nut_grb.csv', reserve_abbr, stations_of_interest, params_of_interest)) %>% 
+  mutate(type = case_when(type == 'nut' ~ 'nutrient', 
+                          type == 'wq' ~ 'water quality',
+                          type == 'met' ~ 'meteo'))
+
+
+# Clean up environment since this is likely being sourced to load the data
+rm(reserve_abbr, params_of_interest, stations_of_interest, load_swmp_monthly_data)
+
+
+###################LINDSAY CODE (from TimeSeriesAnalysis.R)###################
+swmp_data_prep <- swmp_data %>% 
+  # Filter to only median values
+  filter(param %in% c('temp_median', 'turb_median', 
+                      'totprcp_total', 'no23f')) %>% 
+  group_by(station, param) %>% 
+  mutate(mean_val = mean(value, na.rm=T)) %>% 
+  ungroup() %>% 
+  # Now replace NAs with the mean value
+  mutate(value = ifelse(is.na(value), mean_val, value)) %>% 
+  select(-mean_val) %>% 
+  mutate(station_param = sprintf('%s_%s', station, param))
+
+
+################################KAIT CODE########################################
+
+##################MANN KENDALL#####################
+#calculating annual means
+annual_mean<-swmp_data_prep %>%
+  group_by(station,year,param) %>%
+  summarize(Mean = mean(value, na.rm=TRUE))
+
+#Let's plot it
+ggplot(annual_mean,aes(x=year,y=Mean))+
+  geom_point()+
+  geom_line()+
+  geom_smooth() +ylab("Value")+xlab("Year")+
+  facet_wrap(station~param,scales="free_y")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+#Mann Kendall Trend test using {precip}
+precip_annual<-annual_mean %>%
+  filter(param =="totprcp_total")
+mk.test(precip_annual$Mean, alternative = c("two.sided"), continuity = TRUE)
+
+#Mann Kendall Trend test using {no23f} for gb
+gb_no_annual1<-annual_mean %>%
+  filter(station == "gb" & param =="no23f")
+mk.test(gb_no_annual1$Mean, alternative = c("two.sided"), continuity = TRUE)
+#Mann Kendall Trend test using {no23f} for sq
+sq_no_annual<-annual_mean %>%
+  filter(station == "sq" & param =="no23f")
+mk.test(sq_no_annual$Mean, alternative = c("two.sided"), continuity = TRUE)
+
+#Mann Kendall Trend test using {temp_median} gb
+gb_temp_annual<-annual_mean %>%
+  filter(station == "gb" & param == "temp_median")
+mk.test(gb_temp_annual$Mean, alternative = c("two.sided"), continuity = TRUE)
+#Mann Kendall Trend test using {temp_median} sp
+#TREND SLAY
+sq_temp_annual<-annual_mean %>%
+  filter(station == "sq" & param =="temp_median")
+mk.test(sq_temp_annual$Mean, alternative = c("two.sided"), continuity = TRUE)
+
+#Mann Kendall Trend test using {turb_median} for gb
+#TREND SLAY
+gb_turb_annual<-annual_mean %>%
+  filter(station == "gb" & param == "turb_median")
+mk.test(gb_turb_annual$Mean, alternative = c("two.sided"), continuity = TRUE)
+#Mann Kendall Trend test using {turb_median} for sq
+sq_turb_annual<-annual_mean %>%
+  filter(station == "sq" & param =="turb_median")
+mk.test(sq_turb_annual$Mean, alternative = c("two.sided"), continuity = TRUE)
+
+#Let's calculate the sen slope now with sq_temp and gb_turb bc they are both significant
+sens.slope(sq_temp_annual$Mean, conf.level = 0.95)
+sens.slope(gb_turb_annual$Mean, conf.level = 0.95)
+
+##Most of the data is seasonal, so let's do a seasonal trend analysis using monthly data
+
+#SQ Temperature monthly
+##P-values are chi-square= NaN & z = 6.9576e-06
+sq_temp_monthly<-swmp_data_prep %>%
+  filter(station == "sq" & param =="temp_median")
+kendallSeasonalTrendTest(value ~ month + year,
+                         data = sq_temp_monthly,na.action=na.pass)
+
+#GB Temperature monthly
+##P-values are chi-square= NaN & z = 2.865283
+gb_temp_monthly<-swmp_data_prep %>%
+  filter(station == "gb" & param =="temp_median")
+kendallSeasonalTrendTest(value ~ month + year,
+                         data = gb_temp_monthly,na.action=na.pass)
+
+#GB Turb monthly
+##P-values are chi-square= NaN & z = 0.000891
+gb_turb_monthly<-swmp_data_prep %>%
+  filter(station == "gb" & param =="turb_median")
+kendallSeasonalTrendTest(value ~ month + year,
+                         data = gb_turb_monthly,na.action=na.pass)
+
+#SQ Turb monthly
+##P-values are chi-square= NaN & z = 0.02273322
+sq_turb_monthly<-swmp_data_prep %>%
+  filter(station == "sq" & param =="turb_median")
+kendallSeasonalTrendTest(value ~ month + year,
+                         data = sq_turb_monthly,na.action=na.pass)
+
+#GB no23f monthly
+##P-values are chi-square= 0.1689413 & z = 0.9662361
+gb_no_monthly<-swmp_data_prep %>%
+  filter(station == "gb" & param =="no23f")
+kendallSeasonalTrendTest(value ~ month + year,
+                         data = gb_no_monthly,na.action=na.pass)
+
+#SQ no23f monthly
+##P-values are chi-square= 0.8985622 & z = 0.3064113
+sq_no_monthly<-swmp_data_prep %>%
+  filter(station == "sq" & param =="no23f")
+kendallSeasonalTrendTest(value ~ month + year,
+                         data = sq_no_monthly,na.action=na.pass)
+
+#Total precip monthly
+##P-values are chi-square= 0.4274104 & z = 0.9860886
+totprcp_monthly<-swmp_data_prep %>%
+  filter(param =="totprcp_total")
+kendallSeasonalTrendTest(value ~ month + year,
+                         data = totprcp_monthly,na.action=na.pass)
+
+
+##################BREAKPOINT ANALYSIS#####################
+#We will be using {BreakPoints} to apply Buishand and Pettit's tests
+
+#I did the breakpoint for tot precipitation 
+bubreak_totprcp<-Buishand_R(totprcp_monthly$value,n_period=5,dstr='self',simulations = 1000)
+ptbreak_totprcp<-pettit(totprcp_monthly$value,n_period=5)
+plot(totprcp_monthly$value)
+
+#These two tests had different lines 
+abline(v = bubreak_totprcp$breaks,lwd=6,col="blue")
+abline(v = ptbreak_totprcp$breaks, lty=2,col="red",lwd=4)
+
+
+##Breakpoint is at row 119 with a p value of 0.051
+bubreak_totprcp
+##Breakpoint is positioned at row 28 with a p value of 0.83 :,(
+ptbreak_totprcp
+
+#Breakpoint is positioned at row 119 since the p value was closer to 0.051
+totprcp_monthly_seg1<-totprcp_monthly %>% slice(1:119)
+totprcp_monthly_seg2<-totprcp_monthly %>% slice(119:252)
+
+#Colorcoats the points based on before and after breakpoint
+plot(totprcp_monthly$value)
+points(totprcp_monthly_seg1$value,col="red")
+x<-(119:252)
+points(x,totprcp_monthly_seg2$value,col="blue")
+
+#Calculating annual means of precipitation, separated by the breakpoints
+totprcp_annual_seg1<-totprcp_monthly_seg1 %>%
+  group_by(station,year,param) %>%
+  summarize(Mean = mean(value, na.rm=TRUE))
+
+totprcp_annual_seg2<-totprcp_monthly_seg2 %>%
+  group_by(station,year,param) %>%
+  summarize(Mean = mean(value, na.rm=TRUE))
+
+#Calculating the annual Mann Kendall--- plot twist they are both insignificant lmao
+##P-value = 0.1074
+mk.test(totprcp_annual_seg1$Mean, alternative = c("two.sided"), continuity = TRUE)
+##P-value = 0.1926
+mk.test(totprcp_annual_seg2$Mean, alternative = c("two.sided"), continuity = TRUE)
+
+
+#Calculating seasonal Mann Kendall-- plot twist they are both insignificant lmao
+## P-values are chi-square= 0.96764052 & z = 0.03908516
+### She isn't significant.... again
+kendallSeasonalTrendTest(value ~ month + year,
+                         data = totprcp_monthly_seg1,na.action=na.pass)
+
+#Calculating seasonal components
+## P-values are chi-square= 0.8335209 & z = 0.4164578
+### She isn't significant.... again
+kendallSeasonalTrendTest(value ~ month + year,
+                         data = totprcp_monthly_seg2,na.action=na.pass)
