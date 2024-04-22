@@ -56,5 +56,18 @@ swmp_data <-
                                   # Reorder so that the GB Weather Stn appears last
                                   levels = sort(levels(interaction(stationf, paramf, sep = ", ", drop = T)))[c(2:7, 1)]))
 
+# For scales of variability, we needed to fill in NA values. To do this,
+# we replaced any missing value with the mean value for that station and param
+swmp_data_NAfilled <- swmp_data %>% 
+  # Filter to only median values
+  filter(param %in% c('temp_median', 'turb_median', 
+                      'totprcp_total', 'no23f')) %>% 
+  group_by(station, param) %>% 
+  mutate(mean_val = mean(value, na.rm=T)) %>% 
+  ungroup() %>% 
+  # Now replace NAs with the mean value
+  mutate(value = ifelse(is.na(value), mean_val, value)) %>% 
+  select(-mean_val)
+
 # Clean up environment since this is likely being sourced to load the data
 rm(reserve_abbr, params_of_interest, stations_of_interest, load_swmp_monthly_data)
