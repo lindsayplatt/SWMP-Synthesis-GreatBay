@@ -5,6 +5,8 @@
 # Load library dependencies
 library(scico) # For "perceptually uniform and colorblind safe" palettes
 library(tidyverse)
+library(wsyn) # For running the wavelet transform code
+library(zoo) # For running the wavelet transform code
 
 ##### 1 Data loading / preparing #####
 
@@ -31,7 +33,14 @@ print(seasonal_ts_figure_list) # Print out the seasonal time series figures
 
 ###### 3A Time series decomposition ######
 
+source('3A_ts_decomposition.R')
+print(ts_components_figure_all) # First, show all decomposed time series components
+print(ts_components_figure_obs_trend) # Then, show just the observed data with trend components
+print(ts_components_figure_seasonal) # Then, show just the seasonal signal components
+
 ###### 3B Seasonal signals via wavelet transform ######
+
+source('3B_wavelet_transforms.R', echo = TRUE) # Run and print wavelet transform outputs
 
 ##### 4 Time series trend analysis #####
 
