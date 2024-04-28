@@ -37,6 +37,7 @@ source('3A_ts_decomposition.R')
 print(ts_components_figure_all) # First, show all decomposed time series components
 print(ts_components_figure_obs_trend) # Then, show just the observed data with trend components
 print(ts_components_figure_seasonal) # Then, show just the seasonal signal components
+print(ts_components_figure_seasonalrandom) # Now, show seasonal vs seasonal + random signal components
 
 ###### 3B Seasonal signals via wavelet transform ######
 

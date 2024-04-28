@@ -17,7 +17,8 @@ apply_seasonal_decomposition <- function(data) {
          trend = ts_decomposed_obj$trend,
          seasonal = ts_decomposed_obj$seasonal,
          random = ts_decomposed_obj$random) %>% 
-    mutate(year_frac = data$year_frac)
+    mutate(seasonalANDrandom = seasonal + random,
+           year_frac = data$year_frac)
   
 }
 
@@ -34,6 +35,7 @@ decomposed_ts_all <- swmp_data_NAfilled %>%
 
 # Plot everything
 ts_components_figure_all <- decomposed_ts_all %>% 
+  filter(!ts_type %in% c('seasonalANDrandom')) %>% 
   ggplot(aes(x = year_frac, y = value, color = ts_type)) +
   geom_line(linewidth=1) + 
   facet_wrap(~station_param_f, scales='free', ncol=2) +
@@ -62,10 +64,11 @@ ts_components_figure_obs_trend <- decomposed_ts_all %>%
         strip.text = element_text(size=12, face='bold'))
 
 # Plot only the seasonal
+seasonal_col <- scico::scico(n=4, palette = 'glasgow', end = 0.80, categorical=TRUE)[3]
 ts_components_figure_seasonal <- decomposed_ts_all %>% 
   filter(ts_type %in% c('seasonal')) %>% 
   ggplot(aes(x = year_frac, y = value)) +
-  geom_line(linewidth = 1, color = scico::scico(n=4, palette = 'glasgow', end = 0.80, categorical=TRUE)[3]) + 
+  geom_line(linewidth = 1, color = seasonal_col) + 
   facet_wrap(~station_param_f, scales='free', ncol=2) +
   ylab("Parameter Value") + xlab("Year-Month") +
   ggtitle('Decomposed time series components: seasonal signal') + 
@@ -73,5 +76,25 @@ ts_components_figure_seasonal <- decomposed_ts_all %>%
   theme(strip.background = element_blank(),
         strip.text = element_text(size=12, face='bold'))
 
+# Plot seasonal + random to see how year-to-year changes over the ts
+ts_components_figure_seasonalrandom <- decomposed_ts_all %>% 
+  filter(ts_type %in% c('seasonal', 'seasonalANDrandom')) %>% 
+  mutate(ts_typef = factor(ts_type, levels = c('seasonal', 'seasonalANDrandom'),
+                           labels = c('Seasonal', 'Seasonal + Random'),
+                           ordered = TRUE)) %>% 
+  ggplot(aes(x = year_frac, y = value, color = ts_typef, linewidth = ts_typef)) +
+  geom_line() + 
+  facet_wrap(~station_param_f, scales='free', ncol=2) +
+  scale_color_manual(values = c(Seasonal = seasonal_col, 
+                                `Seasonal + Random` = 'grey30'),
+                     name = 'TS Component') +
+  scale_linewidth_manual(values = c(Seasonal = 1.25,  `Seasonal + Random` = 0.75),
+                         guide = 'none') +
+  ylab("Parameter Value") + xlab("Year-Month") +
+  ggtitle('Decomposed time series components: seasonal signal') + 
+  theme_bw() + 
+  theme(strip.background = element_blank(),
+        strip.text = element_text(size=12, face='bold'))
+
 # Clean up environment since this is likely being sourced to load the data
-rm(apply_seasonal_decomposition, decomposed_ts_all)
+rm(apply_seasonal_decomposition, decomposed_ts_all, seasonal_col)
