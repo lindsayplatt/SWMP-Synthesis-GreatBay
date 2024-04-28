@@ -7,6 +7,10 @@ library(scico) # For "perceptually uniform and colorblind safe" palettes
 library(tidyverse)
 library(wsyn) # For running the wavelet transform code
 library(zoo) # For running the wavelet transform code
+library(rEDM) # Specifically `v1.14.0`; For running system identification code
+library(astsa) # For running system identification code
+library(tseries) # For running system identification code
+library(astrochron) # For running system identification code
 
 ##### 1 Data loading / preparing #####
 
@@ -37,6 +41,7 @@ source('3A_ts_decomposition.R')
 print(ts_components_figure_all) # First, show all decomposed time series components
 print(ts_components_figure_obs_trend) # Then, show just the observed data with trend components
 print(ts_components_figure_seasonal) # Then, show just the seasonal signal components
+print(ts_components_figure_seasonalrandom) # Now, show seasonal vs seasonal + random signal components
 
 ###### 3B Seasonal signals via wavelet transform ######
 
@@ -53,3 +58,7 @@ source('3B_wavelet_transforms.R', echo = TRUE) # Run and print wavelet transform
 ##### 5 Time series break-point analysis #####
 
 ##### 6 Time series dynamics, linearity and non-linearity #####
+
+source('6_system_identification.R')
+x <- lapply(systemID_results, message) # Print out the results to the console
+rm(x) # Saved to temporary object just so it didn't print the empty list
